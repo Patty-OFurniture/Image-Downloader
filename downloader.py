@@ -48,12 +48,12 @@ def test_xml(h, f):
 imghdr.tests.append(test_xml)
 
 # imghdr checks for JFIF specifically, ignoring optional markers including metadata
-def test_jpg(h, f):
+def test_jpg2(h, f):
     if (h[:3] == "\xff\xd8\xff"):
         return "jpg"
 
 
-imghdr.tests.append(test_jpg)
+imghdr.tests.append(test_jpg2)
 
 
 def download_image(
@@ -68,75 +68,103 @@ def download_image(
 
     file_name = unquote(file_name)
     response = None
-    file_path = os.path.join(dst_dir, file_name)
     try_times = 0
+
+    if len(file_name) >= 150:
+        print("Truncating:  {}".format(file_name))
+        file_name = file_name[:150]
+        
+    # https://github.com/pablobots/Image-Downloader/commit/5bdbe076589459b9d0c41a563b92993cac1a892e
+    image_url = image_url.split('&amp;')[0]
+
     while True:
         try:
+            file_path = os.path.join(dst_dir, file_name)
             try_times += 1
-            # https://github.com/pablobots/Image-Downloader/commit/5bdbe076589459b9d0c41a563b92993cac1a892e
-            image_url = image_url.split('&amp;')[0] 
+            
             response = requests.get(
                 image_url, headers=headers, timeout=timeout, proxies=proxies
             )
             
             # TODO: handle 429 Too Many Requests, set a timer to slow down request frequency
-            # handle 401 Unauthorized (don't even save the content)
-            # handle 404 not found (don't even save the content)
-            # handle 403 Forbidden (don't even save the content)
-            
-            if response.status_code in [ 404,403,401 ]:
+            if response.status_code in [ 500,404,403,401 ]:
                 print("## Err: STATUS CODE({})  {}".format(response.status_code, image_url))
                 return False
             
-            with open(file_path, "wb") as f:
+        except Exception as e:
+
+            if try_times < 3:
+                file_name = file_name + str(try_times)
+                if response:
+                    response.close()
+                continue
+                
+            else:
+                print("## Fail:  {}  {}".format(image_url, str(e)))
+                return False
+            break
+            
+            
+    try_times = 0
+    while True:
+        try:
+            try_times += 1
+        
+            with open(file_path, "wx") as f:
                 f.write(response.content)
             response.close()
-
-            file_type = imghdr.what(file_path)
-
-            if file_name.endswith(".jpeg"):
-                file_name = file_name.replace(".jpeg", ".jpg")
-
-            if file_type == "jpeg":
-                file_type = "jpg"
-
-            if file_type is None:
-                # os.remove(file_path)
-                print("## Err: TYPE({})  {}".format(file_type, file_name))
+            
+        except IOError:
+            print(str(e))
+            if try_times < 3:
+                
+                file_path = file_path + str(try_times)
+                continue
+            else:
                 return False
-            elif file_type == "html" or file_type == "xml":
-                os.remove(file_path)
-                print("## Err: TYPE({})  {}".format(file_type, image_url))
-                return False
-            elif file_type in ["jpg", "jpeg", "png", "bmp", "webp", 'gif']:
-                if len(file_name) >= 200:
-                    print("Truncating:  {}".format(file_name))
-                    file_name = file_name[:200]
 
-                if file_name.endswith("." + file_type):
-                    new_file_name = file_name
-                else:
-                    new_file_name = "{}.{}".format(file_name, file_type)
+
+        file_type = imghdr.what(file_path)
+
+        if file_name.endswith(".jpeg"):
+            file_name = file_name.replace(".jpeg", ".jpg")
+
+        if file_type == "jpeg":
+            file_type = "jpg"
+
+        if file_type is None:
+            # os.remove(file_path)
+            print("## Err: TYPE({})  {}".format(file_type, file_name))
+            return False
+        elif file_type == "html" or file_type == "xml":
+            os.remove(file_path)
+            print("## Err: TYPE({})  {}".format(file_type, image_url))
+            return False
+        elif file_type in ["jpg", "jpeg", "png", "bmp", "webp", 'gif']:
+
+            if file_name.endswith("." + file_type):
+                iExtension = "." + file_type
+                file_name = file_name[:(len(file_name) - len(iExtension))]
+            
+            while True:
+                new_file_name = "{}.{}".format(file_name, file_type)
 
                 new_file_path = os.path.join(dst_dir, new_file_name)
-                shutil.move(file_path, new_file_path)
-                print("## OK:  {}  {}".format(new_file_name, image_url))
-                return True
-            else:
-                # os.remove(file_path)
-                print("## Err: TYPE({})  {}".format(file_type, image_url))
-                return False
-            break
-
-        except Exception as e:
-            if try_times < 3:
+                
+                if not os.path.isfile(new_file_path):
+                    break;
                 file_name = file_name + "a"
-                continue
-            if response:
-                response.close()
-            print("## Fail:  {}  {}".format(image_url, e.args))
+                
+            shutil.move(file_path, new_file_path)
+                
+            print("## OK:  {}  {}".format(new_file_name, image_url))
+            return True
+        else:
+            # os.remove(file_path)
+            print("## Err: TYPE({})  {}".format(file_type, image_url))
             return False
-            break
+        break
+
 
 
 def download_images(
