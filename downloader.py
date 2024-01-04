@@ -1,216 +1,253 @@
-""" Download image according to given urls and automatically rename them in order. """
-# -*- coding: utf-8 -*-
-# author: Yabin Zheng
-# Email: sczhengyabin@hotmail.com
+import queue
+from io import BytesIO
+from threading import current_thread
+from urllib.parse import urlparse
 
-from __future__ import print_function
-from urllib.parse import unquote
+from PIL import Image
 
-import shutil
-import imghdr
-import os
-import concurrent.futures
-import requests
-import socket
-
-headers = {
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-    "Proxy-Connection": "keep-alive",
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36",
-    "Accept-Encoding": "gzip, deflate, sdch",
-    # 'Connection': 'close',
-}
-
-# additional checks for imghdr.what()
-
-def test_html(h, f):
-    if b"<html" in h:
-        return "html"
-    if b"<HTML" in h:
-        return "html"
-    if b"<!DOCTYPE " in h: # "<!DOCTYPE HTML" or "<!DOCTYPE html"
-        return "html"
-    if b"<!doctype html" in h:
-        return "html"
+from .utils import ThreadPool
 
 
-imghdr.tests.append(test_html)
+class Downloader(ThreadPool):
+    """Base class for downloader.
 
+    A thread pool of downloader threads, in charge of downloading files and
+    saving them in the corresponding paths.
 
-def test_xml(h, f):
-    if b"<xml" in h:
-        return "xml"
-    if b"<?xml " in h:
-        return "xml"
+    Attributes:
+        task_queue (CachedQueue): A queue storing image downloading tasks,
+            connecting :class:`Parser` and :class:`Downloader`.
+        signal (Signal): A Signal object shared by all components.
+        session (Session): A session object.
+        logger: A logging.Logger object used for logging.
+        workers (list): A list of downloader threads.
+        thread_num (int): The number of downloader threads.
+        lock (Lock): A threading.Lock object.
+        storage (BaseStorage): storage backend.
+    """
 
+    def __init__(self, thread_num, signal, session, storage):
+        """Init Parser with some shared variables."""
+        super().__init__(thread_num, out_queue=None, name="downloader")
+        self.signal = signal
+        self.session = session
+        self.storage = storage
+        self.file_idx_offset = 0
+        self.clear_status()
 
-imghdr.tests.append(test_xml)
+    def clear_status(self):
+        """Reset fetched_num to 0."""
+        self.fetched_num = 0
 
-# imghdr checks for JFIF specifically, ignoring optional markers including metadata
-def test_jpg(h, f):
-    if (h[:3] == "\xff\xd8\xff"):
-        return "jpg"
+    def set_file_idx_offset(self, file_idx_offset=0):
+        """Set offset of file index.
 
+        Args:
+            file_idx_offset: It can be either an integer or 'auto'. If set
+                to an integer, the filename will start from
+                ``file_idx_offset`` + 1. If set to ``'auto'``, the filename
+                will start from existing max file index plus 1.
+        """
+        if isinstance(file_idx_offset, int):
+            self.file_idx_offset = file_idx_offset
+        elif file_idx_offset == "auto":
+            self.file_idx_offset = self.storage.max_file_idx()
+        else:
+            raise ValueError('"file_idx_offset" must be an integer or `auto`')
 
-imghdr.tests.append(test_jpg)
+    def get_filename(self, task, default_ext):
+        """Set the path where the image will be saved.
 
+        The default strategy is to use an increasing 6-digit number as
+        the filename. You can override this method if you want to set custom
+        naming rules. The file extension is kept if it can be obtained from
+        the url, otherwise ``default_ext`` is used as extension.
 
-def download_image(
-    image_url, dst_dir, file_name, timeout=20, proxy_type=None, proxy=None
-):
-    proxies = None
-    if proxy_type is not None:
-        proxies = {
-            "http": proxy_type + "://" + proxy,
-            "https": proxy_type + "://" + proxy,
-        }
+        Args:
+            task (dict): The task dict got from ``task_queue``.
 
-    file_name = unquote(file_name)
-    response = None
-    file_path = os.path.join(dst_dir, file_name)
-    try_times = 0
-    while True:
-        try:
-            try_times += 1
-            # https://github.com/pablobots/Image-Downloader/commit/5bdbe076589459b9d0c41a563b92993cac1a892e
-            image_url = image_url.split('&amp;')[0] 
-            response = requests.get(
-                image_url, headers=headers, timeout=timeout, proxies=proxies
-            )
-            
-            # TODO: handle 429 Too Many Requests, set a timer to slow down request frequency
-            # handle 401 Unauthorized (don't even save the content)
-            # handle 404 not found (don't even save the content)
-            # handle 403 Forbidden (don't even save the content)
-            
-            if response.status_code in [ 404,403,401 ]:
-                print("## Err: STATUS CODE({})  {}".format(response.status_code, image_url))
-                return False
-            
-            with open(file_path, "wb") as f:
-                f.write(response.content)
-            response.close()
+        Output:
+            Filename with extension.
+        """
+        url_path = urlparse(task["file_url"])[2]
+        extension = url_path.split(".")[-1] if "." in url_path else default_ext
+        file_idx = self.fetched_num + self.file_idx_offset
+        return f"{file_idx:06d}.{extension}"
 
-            file_type = imghdr.what(file_path)
+    def reach_max_num(self):
+        """Check if downloaded images reached max num.
 
-            if file_name.endswith(".jpeg"):
-                file_name = file_name.replace(".jpeg", ".jpg")
-
-            if file_type == "jpeg":
-                file_type = "jpg"
-
-            if file_type is None:
-                # os.remove(file_path)
-                print("## Err: TYPE({})  {}".format(file_type, file_name))
-                return False
-            elif file_type == "html" or file_type == "xml":
-                os.remove(file_path)
-                print("## Err: TYPE({})  {}".format(file_type, image_url))
-                return False
-            elif file_type in ["jpg", "jpeg", "png", "bmp", "webp", 'gif']:
-                if len(file_name) >= 200:
-                    print("Truncating:  {}".format(file_name))
-                    file_name = file_name[:200]
-
-                if file_name.endswith("." + file_type):
-                    new_file_name = file_name
-                else:
-                    new_file_name = "{}.{}".format(file_name, file_type)
-
-                new_file_path = os.path.join(dst_dir, new_file_name)
-                shutil.move(file_path, new_file_path)
-                print("## OK:  {}  {}".format(new_file_name, image_url))
-                return True
-            else:
-                # os.remove(file_path)
-                print("## Err: TYPE({})  {}".format(file_type, image_url))
-                return False
-            break
-
-        except Exception as e:
-            if try_times < 3:
-                file_name = file_name + "a"
-                continue
-            if response:
-                response.close()
-            print("## Fail:  {}  {}".format(image_url, e.args))
+        Returns:
+            bool: if downloaded images reached max num.
+        """
+        if self.signal.get("reach_max_num"):
+            return True
+        if self.max_num > 0 and self.fetched_num >= self.max_num:
+            return True
+        else:
             return False
-            break
 
+    def keep_file(self, task, response, **kwargs):
+        return True
 
-def download_images(
-    image_urls,
-    dst_dir,
-    file_prefix="img",
-    concurrency=50,
-    timeout=20,
-    proxy_type=None,
-    proxy=None,
-):
-    """
-    Download image according to given urls and automatically rename them in order.
-    :param timeout:
-    :param proxy:
-    :param proxy_type:
-    :param image_urls: list of image urls
-    :param dst_dir: output the downloaded images to dst_dir
-    :param file_prefix: if set to "img", files will be in format "img_xxx.jpg"
-    :param concurrency: number of requests process simultaneously
-    :return: the number of successful downloads
-    """
+    def download(self, task, default_ext, timeout=5, max_retry=3, overwrite=False, **kwargs):
+        """Download the image and save it to the corresponding path.
 
-    socket.setdefaulttimeout(timeout)
+        Args:
+            task (dict): The task dict got from ``task_queue``.
+            timeout (int): Timeout of making requests for downloading images.
+            max_retry (int): the max retry times if the request fails.
+            **kwargs: reserved arguments for overriding.
+        """
+        file_url = task["file_url"]
+        task["success"] = False
+        task["filename"] = None
+        retry = max_retry
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=concurrency) as executor:
-        future_list = list()
-        count = 0
-        success_downloads = 0
+        if not overwrite:
+            with self.lock:
+                self.fetched_num += 1
+                filename = self.get_filename(task, default_ext)
+                if self.storage.exists(filename):
+                    self.logger.info("skip downloading file %s", filename)
+                    return
+                self.fetched_num -= 1
 
-        if not os.path.exists(dst_dir):
-            os.makedirs(dst_dir)
-        for image_url in image_urls:
-            # file_name = file_prefix + "_" + "%04d" % count
-            print("## URL :  {}".format(image_url))
-            file_name = image_url
-            file_name = split_string(file_name, "?", 0)
-            file_name = split_string(file_name, "&amp;", 0)
-            file_name = split_string(file_name, "/", -1)
-            print("## FILE:  {}".format(file_name))
-            future_list.append(
-                executor.submit(
-                    download_image,
-                    image_url,
-                    dst_dir,
-                    file_name,
-                    timeout,
-                    proxy_type,
-                    proxy,
+        while retry > 0 and not self.signal.get("reach_max_num"):
+            try:
+                response = self.session.get(file_url, timeout=timeout)
+                #POF TEMP:
+                self.logger.error(response.request.headers)
+            except Exception as e:
+                self.logger.error(
+                    "Exception caught when downloading file %s, " "error: %s, remaining retry times: %d",
+                    file_url,
+                    e,
+                    retry - 1,
                 )
-            )
-            count += 1
-        concurrent.futures.wait(future_list, timeout=180)
+            else:
+                if self.reach_max_num():
+                    self.signal.set(reach_max_num=True)
+                    break
+                elif response.status_code != 200:
+                    self.logger.error("Response status code %d, file %s", response.status_code, file_url)
+                    break
+                elif not self.keep_file(task, response, **kwargs):
+                    break
+                with self.lock:
+                    self.fetched_num += 1
+                    filename = self.get_filename(task, default_ext)
+                self.logger.info("image #%s\t%s", self.fetched_num, file_url)
+                self.storage.write(filename, response.content)
+                task["success"] = True
+                task["filename"] = filename
+                break
+            finally:
+                retry -= 1
 
-        # Count the number of successful downloads
-        for future in future_list:
-            if future.result():
-                success_downloads += 1
+    def process_meta(self, task):
+        """Process some meta data of the images.
 
-    return success_downloads
+        This method should be overridden by users if wanting to do more things
+        other than just downloading the image, such as saving annotations.
+
+        Args:
+            task (dict): The task dict got from task_queue. This method will
+                make use of fields other than ``file_url`` in the dict.
+        """
+        pass
+
+    def start(self, file_idx_offset=0, *args, **kwargs):
+        self.clear_status()
+        self.set_file_idx_offset(file_idx_offset)
+        self.init_workers(*args, **kwargs)
+        for worker in self.workers:
+            worker.start()
+            self.logger.debug("thread %s started", worker.name)
+
+    def worker_exec(self, max_num, default_ext="", queue_timeout=5, req_timeout=5, **kwargs):
+        """Target method of workers.
+
+        Get task from ``task_queue`` and then download files and process meta
+        data. A downloader thread will exit in either of the following cases:
+
+        1. All parser threads have exited and the task_queue is empty.
+        2. Downloaded image number has reached required number(max_num).
+
+        Args:
+            queue_timeout (int): Timeout of getting tasks from ``task_queue``.
+            req_timeout (int): Timeout of making requests for downloading pages.
+            **kwargs: Arguments passed to the :func:`download` method.
+        """
+        self.max_num = max_num
+        while True:
+            if self.signal.get("reach_max_num"):
+                self.logger.info(
+                    "downloaded images reach max num, thread %s" " is ready to exit", current_thread().name
+                )
+                break
+            try:
+                task = self.in_queue.get(timeout=queue_timeout)
+            except queue.Empty:
+                if self.signal.get("parser_exited"):
+                    self.logger.info("no more download task for thread %s", current_thread().name)
+                    break
+                else:
+                    self.logger.info("%s is waiting for new download tasks", current_thread().name)
+            except:
+                self.logger.error("exception in thread %s", current_thread().name)
+            else:
+                self.download(task, default_ext, req_timeout, **kwargs)
+                self.process_meta(task)
+                self.in_queue.task_done()
+        self.logger.info(f"thread {current_thread().name} exit")
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.logger.info("all downloader threads exited")
 
 
-def split_string(str, delimiter, index):
-    s = str
-    while delimiter in s:
-        s, _, t = s.partition(delimiter)
-        if index == 0:
-            break
-        if t == "":
-            break
-        index = index - 1
-        s = t
+class ImageDownloader(Downloader):
+    """Downloader specified for images."""
 
-    if s == "":
-        s = str
+    def _size_lt(self, sz1, sz2):
+        return max(sz1) <= max(sz2) and min(sz1) <= min(sz2)
 
-    return s
+    def _size_gt(self, sz1, sz2):
+        return max(sz1) >= max(sz2) and min(sz1) >= min(sz2)
+
+    def keep_file(self, task, response, min_size=None, max_size=None):
+        """Decide whether to keep the image
+
+        Compare image size with ``min_size`` and ``max_size`` to decide.
+
+        Args:
+            response (Response): response of requests.
+            min_size (tuple or None): minimum size of required images.
+            max_size (tuple or None): maximum size of required images.
+        Returns:
+            bool: whether to keep the image.
+        """
+        try:
+            img = Image.open(BytesIO(response.content))
+        except OSError:
+            return False
+        task["img_size"] = img.size
+        if min_size and not self._size_gt(img.size, min_size):
+            return False
+        if max_size and not self._size_lt(img.size, max_size):
+            return False
+        return True
+
+    def get_filename(self, task, default_ext):
+        url_path = urlparse(task["file_url"])[2]
+        if "." in url_path:
+            extension = url_path.split(".")[-1]
+            if extension.lower() not in ["jpg", "jpeg", "png", "bmp", "tiff", "gif", "ppm", "pgm"]:
+                extension = default_ext
+        else:
+            extension = default_ext
+        file_idx = self.fetched_num + self.file_idx_offset
+        return f"{file_idx:06d}.{extension}"
+
+    def worker_exec(self, max_num, default_ext="jpg", queue_timeout=5, req_timeout=5, **kwargs):
+        super().worker_exec(max_num, default_ext, queue_timeout, req_timeout, **kwargs)
