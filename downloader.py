@@ -72,13 +72,13 @@ def download_image(image_url, dst_dir, file_name, timeout=20, proxy_type=None, p
         try:
             try_times += 1
 
+            # https://github.com/pablobots/Image-Downloader/commit/5bdbe076589459b9d0c41a563b92993cac1a892e
+            image_url = image_url.split('&amp;')[0]
+
             response = requests.get(
                 image_url, headers=headers, timeout=timeout, proxies=proxies
             )
             
-            # https://github.com/pablobots/Image-Downloader/commit/5bdbe076589459b9d0c41a563b92993cac1a892e
-            image_url = image_url.split('&amp;')[0]
-
             # TODO: handle 429 Too Many Requests, set a timer to slow down request frequency
             # handle 401 Unauthorized (don't even save the content)
             # handle 404 not found (don't even save the content)
