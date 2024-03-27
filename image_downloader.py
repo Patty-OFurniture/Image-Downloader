@@ -11,7 +11,6 @@ import crawler
 import downloader
 
 
-
 def main(argv):
     parser = argparse.ArgumentParser(description="Image Downloader")
     parser.add_argument("keywords", type=str, help='Keywords to search. ("in quotes")')
@@ -67,11 +66,7 @@ def main(argv):
         help="Turn on safe search mode. (Only effective in Google)",
     )
     parser.add_argument(
-        "--face-only",
-        "-F",
-        action="store_true",
-        default=False,
-        help="Only search for faces (only available in Google)",
+        "--face-only", "-F", action="store_true", default=False, help="Only search for "
     )
     parser.add_argument(
         "--proxy_http",
@@ -118,10 +113,6 @@ def main(argv):
     elif args.proxy_socks5 is not None:
         proxy_type = "socks5"
         proxy = args.proxy_socks5
-
-#    if not utils.resolve_dependencies(args.driver):
-#        print("Dependencies not resolved, exit.")
-#        return
 
     crawled_urls = crawler.crawl_image_urls(
         args.keywords,

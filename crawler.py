@@ -1,5 +1,4 @@
 """ Crawl image urls from image search engine. """
-
 # -*- coding: utf-8 -*-
 # author: Yabin Zheng
 # Email: sczhengyabin@hotmail.com
@@ -21,13 +20,11 @@ from selenium.webdriver.common.by import By
 g_headers = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
     "Proxy-Connection": "keep-alive",
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36",
     "Accept-Encoding": "gzip, deflate, sdch",
     # 'Connection': 'close',
 }
-
-session = requests.Session()
-session.headers = g_headers
 
 if getattr(sys, "frozen", False):
     bundle_dir = sys._MEIPASS
@@ -85,7 +82,7 @@ def google_image_url_from_webpage(driver, max_number, quiet=False):
                 break
             thumb_elements_old = thumb_elements
             driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-            time.sleep(5)
+            time.sleep(2)
             show_more = driver.find_elements(By.CLASS_NAME, "mye4qd")
             if (
                 len(show_more) == 1
@@ -130,7 +127,7 @@ def google_image_url_from_webpage(driver, max_number, quiet=False):
 
     image_elements = driver.find_elements(By.CLASS_NAME, "islib")
     image_urls = list()
-    url_pattern = r"imgurl=\S*&amp;imgrefurl"  # url_pattern = r"imgurl=(.*?)&amp;"
+    url_pattern = r"imgurl=\S*&amp;imgrefurl"
 
     for image_element in image_elements[:max_number]:
         outer_html = image_element.get_attribute("outerHTML")
@@ -205,7 +202,7 @@ def bing_get_image_url_using_api(
         url = "https://www.bing.com/images/async?q={}&first={}&count=35".format(
             keywords, start
         )
-        res = session.get(url, proxies=proxies, headers=g_headers)
+        res = requests.get(url, proxies=proxies, headers=g_headers)
         res.encoding = "utf-8"
         image_urls_batch = re.findall("murl&quot;:&quot;(.*?)&quot;", res.text)
         if len(image_urls) > 0 and image_urls_batch[-1] == image_urls[-1]:
@@ -285,7 +282,7 @@ def baidu_get_image_url_using_api(
             "https": "{}://{}".format(proxy_type, proxy),
         }
 
-    res = session.get(init_url, proxies=proxies, headers=g_headers)
+    res = requests.get(init_url, proxies=proxies, headers=g_headers)
     init_json = json.loads(res.text.replace(r"\'", "").encode("utf-8"), strict=False)
     total_num = init_json["listNum"]
 
@@ -304,7 +301,7 @@ def baidu_get_image_url_using_api(
             try_time = 0
             while True:
                 try:
-                    response = session.get(url, proxies=proxies, headers=g_headers)
+                    response = requests.get(url, proxies=proxies, headers=g_headers)
                     break
                 except Exception as e:
                     try_time += 1
@@ -366,10 +363,6 @@ def crawl_image_urls(
     :return: list of scraped image urls
     """
 
-    # Validate engine name
-    if engine not in ["Google", "Baidu", "Bing"]:
-        raise Exception(f"Unknown engine name: {engine}")
-
     my_print("\nScraping From {} Image Search ...\n".format(engine), quiet)
     my_print("Keywords:  " + keywords, quiet)
     if max_number <= 0:
@@ -407,8 +400,6 @@ def crawl_image_urls(
                 "--proxy-server={}://{}".format(proxy_type, proxy)
             )
 
-        chrome_options.add_argument("--ignore-certificate-errors")
-
         # driver = webdriver.Chrome(chrome_path, chrome_options=chrome_options)
         service = webdriver.ChromeService()
         driver = webdriver.Chrome(service=service, options=chrome_options)
@@ -420,12 +411,10 @@ def crawl_image_urls(
             driver.set_window_size(1920, 1080)
             driver.get(query_url)
             image_urls = bing_image_url_from_webpage(driver)
-        elif engine == "Baidu":
+        else:  # Baidu
             driver.set_window_size(10000, 7500)
             driver.get(query_url)
             image_urls = baidu_image_url_from_webpage(driver)
-
-        # driver.close() # just closes the window.  quit() does much more cleanup
         driver.quit()
     else:  # api
         if engine == "Baidu":
