@@ -9,6 +9,7 @@ import sys
 
 import crawler
 import downloader
+import utils
 
 
 def main(argv):

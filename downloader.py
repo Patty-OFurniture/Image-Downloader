@@ -72,6 +72,10 @@ def download_image(image_url, dst_dir, file_name, timeout=20, proxy_type=None, p
         try:
             try_times += 1
 
+            response = requests.get(
+                image_url, headers=headers, timeout=timeout, proxies=proxies
+            )
+            
             # https://github.com/pablobots/Image-Downloader/commit/5bdbe076589459b9d0c41a563b92993cac1a892e
             image_url = image_url.split('&amp;')[0]
 
@@ -154,7 +158,7 @@ def download_images(image_urls, dst_dir, file_prefix="img", concurrency=50, time
         future_list = list()
         count = 0
         success_downloads = 0
-        
+
         if not os.path.exists(dst_dir):
             os.makedirs(dst_dir)
         for image_url in image_urls:
@@ -178,7 +182,7 @@ def download_images(image_urls, dst_dir, file_prefix="img", concurrency=50, time
             )
             count += 1
         concurrent.futures.wait(future_list, timeout=180)
-        
+
         # Count the number of successful downloads
         for future in future_list:
             if future.result():
