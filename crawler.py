@@ -77,7 +77,10 @@ def google_image_url_from_webpage(driver, max_number, quiet=False):
     thumb_elements = []
     while True:
         try:
-            thumb_elements = driver.find_elements(By.CLASS_NAME, "rg_i")
+            # old way to get thumb_elements
+            # thumb_elements = driver.find_elements(By.CLASS_NAME, "rg_i")
+            # Adapt to the updated Google image search page
+            thumb_elements = driver.find_elements(By.CSS_SELECTOR, ".H8Rx8c > g-img > img")
             my_print("Find {} images.".format(len(thumb_elements)), quiet)
             if len(thumb_elements) >= max_number:
                 break
@@ -85,7 +88,7 @@ def google_image_url_from_webpage(driver, max_number, quiet=False):
                 break
             thumb_elements_old = thumb_elements
             driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-            time.sleep(5)
+            time.sleep(10)
             show_more = driver.find_elements(By.CLASS_NAME, "mye4qd")
             if (
                 len(show_more) == 1
@@ -128,7 +131,9 @@ def google_image_url_from_webpage(driver, max_number, quiet=False):
             except Exception as e:
                 print("Error while retrying click:", e)
 
-    image_elements = driver.find_elements(By.CLASS_NAME, "islib")
+
+    # image_elements = driver.find_elements(By.CLASS_NAME, "islib")
+    image_elements = driver.find_elements(By.CSS_SELECTOR, ".ob5Hkd > a")
     image_urls = list()
     url_pattern = r"imgurl=\S*&amp;imgrefurl"
 
