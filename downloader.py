@@ -56,6 +56,19 @@ def test_jpg2(h, f):
 imghdr.tests.append(test_jpg2)
 
 
+# https://stackoverflow.com/questions/8032642/how-can-i-obtain-the-image-size-using-a-standard-python-class-without-using-an
+def test_jpeg2(h, f):
+    # SOI APP2 + ICC_PROFILE
+    if h[0:4] == '\xff\xd8\xff\xe2' and h[6:17] == b'ICC_PROFILE':
+        return 'jpeg'
+    # SOI APP14 + Adobe
+    if h[0:4] == '\xff\xd8\xff\xee' and h[6:11] == b'Adobe':
+        return 'jpeg'
+    # SOI DQT
+    if h[0:4] == '\xff\xd8\xff\xdb':
+        return 'jpeg'
+imghdr.tests.append(test_jpeg2)
+
 def download_image(image_url, dst_dir, file_name, timeout=20, proxy_type=None, proxy=None):
     proxies = None
     if proxy_type is not None:
@@ -109,9 +122,9 @@ def download_image(image_url, dst_dir, file_name, timeout=20, proxy_type=None, p
                 print("## Err: TYPE({})  {}".format(file_type, image_url))
                 return False
             elif file_type in ["jpg", "jpeg", "png", "bmp", "webp", 'gif']:
-                if len(file_name) >= 200:
+                if len(file_name) >= 150:
                     print("Truncating:  {}".format(file_name))
-                    file_name = file_name[:200]
+                    file_name = file_name[:150]
 
                 if file_name.endswith("." + file_type):
                     new_file_name = file_name
@@ -181,7 +194,7 @@ def download_images(image_urls, dst_dir, file_prefix="img", concurrency=50, time
                 )
             )
             count += 1
-        concurrent.futures.wait(future_list, timeout=180)
+        concurrent.futures.wait(future_list, timeout=90)
 
         # Count the number of successful downloads
         for future in future_list:
