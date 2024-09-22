@@ -104,17 +104,24 @@ def download_image(image_url, dst_dir, file_name, timeout=20, proxy_type=None, p
             
             file_name = get_filename(file_name, response.content)
             file_path = os.path.join(dst_dir, file_name)
+            base_file_path = file_path
 
-            file_attempts = 5
-            while file_attempts > 0:
+            file_attempts = 0
+            while file_attempts < 50:
                 try:
-                    with open(file_path, "wb") as f:
+                    # open for exclusive creation, failing if the file already exists
+                    with open(file_path, "xb") as f:
                         f.write(response.content)
                     response.close()
                     break
+                except FileExistsError:
+                    file_attempts += 1
+                    file_name = "{}_{}{}".format(Path(base_file_path).stem, file_attempts, Path(base_file_path).suffix)
+                    file_path = os.path.join(dst_dir, file_name)
                 except Exception as e:
-                    file_attempts -= 1
-                    file_name = file_name = Path(file_name).stem + "_" + Path(file_name).suffix
+                    file_attempts += 1
+                    file_name = "unknown" + Path(file_name).suffix
+                    file_path = os.path.join(dst_dir, file_name)
 
         except Exception as e:
             if try_times < 3:
@@ -127,6 +134,11 @@ def download_image(image_url, dst_dir, file_name, timeout=20, proxy_type=None, p
 def get_filename(file_name, content):
 
     #TODO: use python-magic
+
+    # just in case
+    if "/" in file_name:
+        file_name = split_string(file_name, "/", -1) 
+
     if file_name.endswith(".jpeg"):
         file_name = file_name.replace(".jpeg", ".jpg")
 
