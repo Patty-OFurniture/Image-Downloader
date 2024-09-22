@@ -5,6 +5,7 @@
 
 from __future__ import print_function
 from urllib.parse import unquote
+from pathlib import Path
 
 import shutil
 import imghdr
@@ -101,55 +102,62 @@ def download_image(image_url, dst_dir, file_name, timeout=20, proxy_type=None, p
                 print("## Err: STATUS CODE({})  {}".format(response.status_code, image_url))
                 return False
             
-            with open(file_path, "wb") as f:
-                f.write(response.content)
-            response.close()
+            file_name = get_filename(file_name, response.content)
+            file_path = os.path.join(dst_dir, file_name)
 
-            file_type = imghdr.what(file_path)
-
-            if file_name.endswith(".jpeg"):
-                file_name = file_name.replace(".jpeg", ".jpg")
-
-            if file_type == "jpeg":
-                file_type = "jpg"
-
-            if file_type is None:
-                # os.remove(file_path)
-                print("## Err: TYPE({})  {}".format(file_type, file_name))
-                return False
-            elif file_type == "html" or file_type == "xml":
-                os.remove(file_path)
-                print("## Err: TYPE({})  {}".format(file_type, image_url))
-                return False
-            elif file_type in ["jpg", "jpeg", "png", "bmp", "webp", 'gif']:
-                if len(file_name) >= 150:
-                    print("Truncating:  {}".format(file_name))
-                    file_name = file_name[:150]
-
-                if file_name.endswith("." + file_type):
-                    new_file_name = file_name
-                else:
-                    new_file_name = "{}.{}".format(file_name, file_type)
-
-                new_file_path = os.path.join(dst_dir, new_file_name)
-                shutil.move(file_path, new_file_path)
-                print("## OK:  {}  {}".format(new_file_name, image_url))
-                return True
-            else:
-                # os.remove(file_path)
-                print("## Err: TYPE({})  {}".format(file_type, image_url))
-                return False
-            break
+            file_attempts = 5
+            while file_attempts > 0:
+                try:
+                    with open(file_path, "wb") as f:
+                        f.write(response.content)
+                    response.close()
+                    break
+                except Exception as e:
+                    file_attempts -= 1
+                    file_name = file_name = Path(file_name).stem + "_" + Path(file_name).suffix
 
         except Exception as e:
             if try_times < 3:
-                file_name = file_name + "a"
                 continue
             if response:
                 response.close()
             print("## Fail:  {}  {}".format(image_url, e.args))
-            return False
-            break
+        break
+
+def get_filename(file_name, content):
+
+    #TODO: use python-magic
+    if file_name.endswith(".jpeg"):
+        file_name = file_name.replace(".jpeg", ".jpg")
+
+    file_type = imghdr.what('', content)
+
+    if file_type == "jpeg":
+        file_type = "jpg"
+
+    if file_type is None:
+        # os.remove(file_path)
+        print("## Err: TYPE({})  {}".format(file_type, file_name))
+        return file_name
+    elif file_type == "html" or file_type == "xml":
+        # os.remove(file_path)
+        print("## Err: TYPE({})  {}".format(file_type, file_name))
+        return file_name
+    elif file_type in ["jpg", "jpeg", "png", "bmp", "webp", 'gif']:
+
+        if file_name.endswith("." + file_type):
+            new_file_name = file_name
+            print("## OK:  {}".format(new_file_name))
+        else:
+            file_name = Path(file_name).stem
+            new_file_name = "{}.{}".format(file_name, file_type)
+            print("## OK:  {} => {}".format(file_name, new_file_name))
+        return new_file_name
+
+    else:
+        # os.remove(file_path)
+        print("## Err: TYPE({})  {}".format(file_type, file_name))
+        return file_name
 
 
 def download_images(image_urls, dst_dir, file_prefix="img", concurrency=50, timeout=20, proxy_type=None, proxy=None):
