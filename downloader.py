@@ -24,6 +24,20 @@ headers = {
 }
 
 # additional checks for imghdr.what()
+# default tests:
+# test_bmp
+# test_exr
+# test_gif
+# test_jpeg
+# test_pbm
+# test_pgm
+# test_png
+# test_ppm
+# test_rast
+# test_rgb
+# test_tiff
+# test_webp
+# test_xbm
 
 def test_html(h, f):
     if b"<html" in h:
@@ -34,7 +48,7 @@ def test_html(h, f):
         return "html"
     if b"<!doctype html" in h:
         return "html"
-
+    return None 
 
 imghdr.tests.append(test_html)
 
@@ -44,17 +58,18 @@ def test_xml(h, f):
         return "xml"
     if b"<?xml " in h:
         return "xml"
-
+    return None 
 
 imghdr.tests.append(test_xml)
 
+
 # imghdr checks for JFIF specifically, ignoring optional markers including metadata
-def test_jpg2(h, f):
+def test_jpg(h, f):
     if (h[:3] == "\xff\xd8\xff"):
         return "jpg"
+    return None 
 
-
-imghdr.tests.append(test_jpg2)
+imghdr.tests.append(test_jpg)
 
 
 # https://stackoverflow.com/questions/8032642/how-can-i-obtain-the-image-size-using-a-standard-python-class-without-using-an
@@ -68,7 +83,10 @@ def test_jpeg2(h, f):
     # SOI DQT
     if h[0:4] == '\xff\xd8\xff\xdb':
         return 'jpeg'
+    return None 
+
 imghdr.tests.append(test_jpeg2)
+
 
 def download_image(image_url, dst_dir, file_name, timeout=20, proxy_type=None, proxy=None):
     proxies = None
@@ -101,7 +119,10 @@ def download_image(image_url, dst_dir, file_name, timeout=20, proxy_type=None, p
             if response.status_code in [ 404,403,401 ]:
                 print("## Err: STATUS CODE({})  {}".format(response.status_code, image_url))
                 return False
-            
+
+            if len(response.content) < 1:
+                break;
+
             file_name = get_filename(file_name, response.content)
             file_path = os.path.join(dst_dir, file_name)
             base_file_path = file_path
@@ -151,12 +172,8 @@ def get_filename(file_name, content):
         # os.remove(file_path)
         print("## Err: TYPE({})  {}".format(file_type, file_name))
         return file_name
-    elif file_type == "html" or file_type == "xml":
-        # os.remove(file_path)
-        print("## Err: TYPE({})  {}".format(file_type, file_name))
-        return file_name
-    elif file_type in ["jpg", "jpeg", "png", "bmp", "webp", 'gif']:
 
+    elif file_type in ["jpg", "jpeg", "png", "bmp", "webp", 'gif', 'xml', 'html']:
         if file_name.endswith("." + file_type):
             new_file_name = file_name
             print("## OK:  {}".format(new_file_name))
