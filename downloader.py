@@ -6,6 +6,7 @@
 from __future__ import print_function
 from urllib.parse import unquote
 from pathlib import Path
+from hashlib import sha256
 
 import shutil
 import imghdr
@@ -65,7 +66,7 @@ imghdr.tests.append(test_xml)
 
 # imghdr checks for JFIF specifically, ignoring optional markers including metadata
 def test_jpg(h, f):
-    if (h[:3] == "\xff\xd8\xff"):
+    if h.startswith(b"\xff\xd8\xff"):
         return "jpg"
     return None 
 
@@ -122,6 +123,8 @@ def download_image(image_url, dst_dir, file_name, timeout=20, proxy_type=None, p
 
             if len(response.content) < 1:
                 break;
+
+            hash_string = sha256(response.content).hexdigest()
 
             file_name = get_filename(file_name, response.content)
             file_path = os.path.join(dst_dir, file_name)
