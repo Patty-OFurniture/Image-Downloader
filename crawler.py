@@ -77,6 +77,8 @@ def google_image_url_from_webpage(driver, max_number, quiet=False):
     thumb_elements = []
     while True:
         try:
+            # tuankg1028
+            # thumb_elements = driver.find_elements(By.CLASS_NAME, "ivg-i")
             # old way to get thumb_elements
             # thumb_elements = driver.find_elements(By.CLASS_NAME, "rg_i")
             # Adapt to the updated Google image search page
@@ -133,15 +135,21 @@ def google_image_url_from_webpage(driver, max_number, quiet=False):
 
 
     # image_elements = driver.find_elements(By.CLASS_NAME, "islib")
+    # tuankg1028 
+    # image_elements = driver.find_elements(By.CLASS_NAME, "ivg-i")
     image_elements = driver.find_elements(By.CSS_SELECTOR, ".ob5Hkd > a")
     image_urls = list()
-    url_pattern = r"imgurl=\S*&amp;imgrefurl"
+    #url_pattern = r"imgurl=\S*&amp;imgrefurl"
+    # bluelul/Image-Downloader
+    url_pattern = r"imgurl=\S*&amp;tbnid"
 
     for image_element in image_elements[:max_number]:
         outer_html = image_element.get_attribute("outerHTML")
         re_group = re.search(url_pattern, outer_html)
         if re_group is not None:
-            image_url = unquote(re_group.group()[7:-14])
+            # image_url = unquote(re_group.group()[7:-14])
+            # bluelul/Image-Downloader
+            image_url = unquote(re_group.group()[7:-10])
             image_urls.append(image_url)
     return image_urls
 
@@ -213,7 +221,7 @@ def bing_get_image_url_using_api(
         res = session.get(url, proxies=proxies, headers=g_headers)
         res.encoding = "utf-8"
         image_urls_batch = re.findall("murl&quot;:&quot;(.*?)&quot;", res.text)
-        if len(image_urls) > 0 and image_urls_batch[-1] == image_urls[-1]:
+        if len(image_urls) > 0 and len(image_urls_batch) > 0 and image_urls_batch[-1] == image_urls[-1]:
             break
         image_urls += image_urls_batch
         start += len(image_urls_batch)
@@ -406,7 +414,8 @@ def crawl_image_urls(
         chrome_options = webdriver.ChromeOptions()
         chrome_options.add_argument("--ignore-certificate-errors")
         if "headless" in browser:
-            chrome_options.add_argument("headless")
+            chrome_options.add_argument("--headless=old") # headless for v < 129
+            # https://chromium-review.googlesource.com/c/chromium/src/+/5789117 (
         if proxy is not None and proxy_type is not None:
             chrome_options.add_argument(
                 "--proxy-server={}://{}".format(proxy_type, proxy)

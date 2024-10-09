@@ -132,18 +132,16 @@ def download_image(image_url, dst_dir, file_name, timeout=20, proxy_type=None, p
 
             file_attempts = 0
             while file_attempts < 50:
+                file_attempts += 1
                 try:
                     # open for exclusive creation, failing if the file already exists
                     with open(file_path, "xb") as f:
                         f.write(response.content)
-                    response.close()
                     break
                 except FileExistsError:
-                    file_attempts += 1
                     file_name = "{}_{}{}".format(Path(base_file_path).stem, file_attempts, Path(base_file_path).suffix)
                     file_path = os.path.join(dst_dir, file_name)
                 except Exception as e:
-                    file_attempts += 1
                     file_name = "unknown" + Path(file_name).suffix
                     file_path = os.path.join(dst_dir, file_name)
 
